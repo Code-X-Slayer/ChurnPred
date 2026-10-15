@@ -6,6 +6,17 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import shap
 import streamlit as st
+from sklearn.metrics import (
+    confusion_matrix,
+    roc_curve,
+    auc,
+    accuracy_score,
+    precision_score,
+    recall_score,
+    f1_score,
+    roc_auc_score,
+    classification_report
+)
 
 st.set_page_config(
     page_title="Customer Churn Prediction",
@@ -141,6 +152,7 @@ st.caption("Machine Learning Mini-Project using the IBM Telco Customer Churn Dat
 tabs = st.tabs([
     "📋 Overview",
     "⚖️ Model Comparison & SMOTE",
+    "📊 Model Evaluation & ROC",
     "🔍 SHAP Explainability",
     "🎯 Live Customer Prediction"
 ])
@@ -252,6 +264,202 @@ with tabs[1]:
     """)
 
 with tabs[2]:
+    st.header("📊 Model Evaluation: Confusion Matrix & ROC-AUC")
+    st.markdown("""
+    Select any trained model to evaluate its classification performance on the **held-out test set** (1,409 customers), 
+    examine its **Confusion Matrix**, analyze key metrics, and inspect the **ROC-AUC curve**.
+    """)
+
+    # Model selector and threshold controls
+    c_eval1, c_eval2 = st.columns([3, 2])
+    with c_eval1:
+        eval_default_idx = list(MODEL_OPTIONS.keys()).index(selected_model_label) if selected_model_label in MODEL_OPTIONS else 0
+        eval_model_label = st.selectbox(
+            "Select Model to Evaluate:",
+            list(MODEL_OPTIONS.keys()),
+            index=eval_default_idx,
+            key="eval_model_picker",
+            help="Choose any model to generate its Confusion Matrix, ROC-AUC curve, and performance metrics."
+        )
+    with c_eval2:
+        threshold = st.slider(
+            "Decision Threshold (Classification Cutoff):",
+            min_value=0.10,
+            max_value=0.90,
+            value=0.50,
+            step=0.05,
+            help="Default is 0.50. Lower threshold increases Recall (catches more churners) at the cost of more false alarms."
+        )
+
+    eval_model_key = MODEL_OPTIONS[eval_model_label]
+    eval_model = all_models[eval_model_key]
+    eval_family = eval_model_key.split("_")[0]
+    eval_is_smote = "With SMOTE" if "smote" in eval_model_key else "Baseline (No SMOTE)"
+
+    # Compute predictions and probabilities
+    y_test_probs = eval_model.predict_proba(X_test_scaled)[:, 1]
+    y_test_preds = (y_test_probs >= threshold).astype(int)
+
+    # Compute key evaluation metrics
+    eval_acc = accuracy_score(y_test, y_test_preds)
+    eval_prec = precision_score(y_test, y_test_preds, zero_division=0)
+    eval_rec = recall_score(y_test, y_test_preds, zero_division=0)
+    eval_f1 = f1_score(y_test, y_test_preds, zero_division=0)
+    eval_auc = roc_auc_score(y_test, y_test_probs)
+
+    # Display Metrics Cards
+    st.subheader(f"Calculated Metrics: {eval_family} ({eval_is_smote})")
+    if threshold != 0.5:
+        st.info(f"⚡ Metrics dynamically recomputed at decision threshold = **{threshold:.2f}** (Default baseline is 0.50).")
+
+    m1, m2, m3, m4, m5 = st.columns(5)
+    m1.metric("Accuracy", f"{eval_acc:.2%}", help="Overall proportion of correct predictions: (TN + TP) / Total")
+    m2.metric("Precision", f"{eval_prec:.2%}", help="Of all predicted churners, % who actually churned")
+    m3.metric("Recall (Sensitivity)", f"{eval_rec:.2%}", help="Of all actual churners, % caught by the model")
+    m4.metric("F1-Score", f"{eval_f1:.4f}", help="Harmonic mean of Precision and Recall")
+    m5.metric("ROC-AUC Score", f"{eval_auc:.4f}", help="Ranking discriminative power independent of threshold")
+
+    st.markdown("---")
+
+    # Side-by-side Visualizations: Confusion Matrix and ROC Curve
+    col_cm, col_roc = st.columns(2)
+
+    with col_cm:
+        st.subheader("Confusion Matrix")
+        st.caption(f"Evaluated on 1,409 Test Customers (Threshold = {threshold:.2f})")
+
+        cm = confusion_matrix(y_test, y_test_preds)
+        tn, fp, fn, tp = cm.ravel()
+        total_eval = len(y_test)
+
+        labels = [
+            f"True Neg (TN)\n{tn:,}\n({tn/total_eval:.1%})",
+            f"False Pos (FP)\n{fp:,}\n({fp/total_eval:.1%})",
+            f"False Neg (FN)\n{fn:,}\n({fn/total_eval:.1%})",
+            f"True Pos (TP)\n{tp:,}\n({tp/total_eval:.1%})"
+        ]
+        labels = np.asarray(labels).reshape(2, 2)
+
+        fig_cm, ax_cm = plt.subplots(figsize=(6, 4.8), dpi=100)
+        sns.heatmap(
+            cm,
+            annot=labels,
+            fmt="",
+            cmap="Blues",
+            cbar=False,
+            ax=ax_cm,
+            linewidths=2,
+            linecolor="white",
+            annot_kws={"size": 11, "weight": "bold"}
+        )
+        ax_cm.set_title(f"Confusion Matrix: {eval_family} ({eval_is_smote})", fontsize=12, fontweight="bold", pad=12)
+        ax_cm.set_xlabel("Predicted Label", fontsize=11, fontweight="bold")
+        ax_cm.set_ylabel("Actual Label", fontsize=11, fontweight="bold")
+        ax_cm.set_xticklabels(["Retained (0)", "Churned (1)"], fontsize=10)
+        ax_cm.set_yticklabels(["Retained (0)", "Churned (1)"], fontsize=10, rotation=0)
+        st.pyplot(fig_cm)
+        plt.close(fig_cm)
+
+        # Business Interpretation breakdown
+        st.markdown(f"""
+        **Confusion Matrix Breakdown**:
+        - **True Negatives (TN = {tn:,})**: Loyal customers correctly identified as staying.
+        - **False Positives (FP = {fp:,})**: False alarms; loyal customers flagged for retention.
+        - **False Negatives (FN = {fn:,})**: **Critical risk**; churners missed without retention action.
+        - **True Positives (TP = {tp:,})**: At-risk churners caught in time for proactive retention.
+        """)
+
+    with col_roc:
+        st.subheader("ROC-AUC Curve")
+        st.caption("True Positive Rate vs. False Positive Rate across all decision thresholds")
+
+        fpr, tpr, _ = roc_curve(y_test, y_test_probs)
+
+        fig_roc, ax_roc = plt.subplots(figsize=(6, 4.8), dpi=100)
+        ax_roc.plot(fpr, tpr, color="#2980b9", lw=2.5, label=f"{eval_family} ({eval_is_smote})\nAUC = {eval_auc:.4f}")
+        ax_roc.plot([0, 1], [0, 1], color="#7f8c8d", lw=1.5, linestyle="--", label="Random Chance (AUC = 0.5000)")
+        ax_roc.fill_between(fpr, tpr, alpha=0.15, color="#3498db")
+
+        # Operating Point at selected threshold
+        current_fpr = fp / (fp + tn) if (fp + tn) > 0 else 0
+        current_tpr = tp / (tp + fn) if (tp + fn) > 0 else 0
+        ax_roc.scatter([current_fpr], [current_tpr], color="#e74c3c", s=110, zorder=5, label=f"Operating Point (Thresh = {threshold:.2f})")
+        ax_roc.annotate(
+            f" FPR: {current_fpr:.2f}\n TPR: {current_tpr:.2f}",
+            (current_fpr, current_tpr),
+            fontsize=9,
+            fontweight="bold",
+            color="#c0392b",
+            xytext=(10, -10),
+            textcoords="offset points"
+        )
+
+        ax_roc.set_xlim([-0.02, 1.02])
+        ax_roc.set_ylim([-0.02, 1.05])
+        ax_roc.set_xlabel("False Positive Rate (1 - Specificity)", fontsize=11, fontweight="bold")
+        ax_roc.set_ylabel("True Positive Rate (Recall / Sensitivity)", fontsize=11, fontweight="bold")
+        ax_roc.set_title(f"ROC Curve: {eval_family} ({eval_is_smote})", fontsize=12, fontweight="bold", pad=12)
+        ax_roc.legend(loc="lower right", fontsize=9, framealpha=0.95)
+        ax_roc.grid(True, linestyle=":", alpha=0.6)
+        st.pyplot(fig_roc)
+        plt.close(fig_roc)
+
+        st.markdown(f"""
+        **ROC-AUC Insights**:
+        - **AUC = `{eval_auc:.4f}`**: An AUC of ~0.83–0.84 indicates **strong ranking ability**, accurately prioritizing churners above non-churners.
+        - **Operating Point**: At threshold `{threshold:.2f}`, True Positive Rate (Recall) is **`{current_tpr:.1%}`** with a False Positive Rate of **`{current_fpr:.1%}`**.
+        """)
+
+    # Multi-Model ROC Comparison
+    st.markdown("---")
+    st.subheader("📈 Multi-Model ROC Comparison")
+    show_all_roc = st.checkbox("Overlay all 8 models on a single ROC plot for side-by-side comparison", value=False)
+
+    if show_all_roc:
+        fig_multi, ax_multi = plt.subplots(figsize=(9, 5.5), dpi=100)
+        colors = ["#e74c3c", "#c0392b", "#2ecc71", "#27ae60", "#3498db", "#2980b9", "#9b59b6", "#8e44ad"]
+
+        for idx, (lbl, key) in enumerate(MODEL_OPTIONS.items()):
+            mod = all_models[key]
+            probs = mod.predict_proba(X_test_scaled)[:, 1]
+            f_rate, t_rate, _ = roc_curve(y_test, probs)
+            score = roc_auc_score(y_test, probs)
+            linestyle = "-" if "smote" in key else "--"
+            short_label = lbl.replace(" ⭐ Recommended", "")
+            ax_multi.plot(f_rate, t_rate, label=f"{short_label} (AUC = {score:.3f})", linestyle=linestyle, lw=1.8, color=colors[idx % len(colors)])
+
+        ax_multi.plot([0, 1], [0, 1], color="#95a5a6", linestyle=":", lw=1.5, label="Random Guess (0.500)")
+        ax_multi.set_xlim([-0.02, 1.02])
+        ax_multi.set_ylim([-0.02, 1.05])
+        ax_multi.set_xlabel("False Positive Rate (1 - Specificity)", fontsize=11, fontweight="bold")
+        ax_multi.set_ylabel("True Positive Rate (Recall)", fontsize=11, fontweight="bold")
+        ax_multi.set_title("ROC Curves Comparison Across All Models", fontsize=13, fontweight="bold")
+        ax_multi.legend(loc="lower right", fontsize=8.5, framealpha=0.9)
+        ax_multi.grid(True, linestyle=":", alpha=0.5)
+        st.pyplot(fig_multi)
+        plt.close(fig_multi)
+
+    # Detailed Classification Report
+    st.markdown("---")
+    st.subheader("📋 Detailed Classification Report")
+    report_dict = classification_report(
+        y_test,
+        y_test_preds,
+        target_names=["Retained (0)", "Churned (1)"],
+        output_dict=True
+    )
+    report_df = pd.DataFrame(report_dict).transpose()
+    st.dataframe(
+        report_df.style.format({
+            "precision": "{:.2%}",
+            "recall": "{:.2%}",
+            "f1-score": "{:.4f}",
+            "support": "{:.0f}"
+        }),
+        use_container_width=True
+    )
+
+with tabs[3]:
     st.header("SHAP Explainability (Model Interpretability)")
     st.markdown(f"""
     Explanations computed using **TreeExplainer** on `{best_model_name}` to reveal how individual features influence churn predictions.
@@ -283,7 +491,7 @@ with tabs[2]:
     4. **Monthly & Total Charges**: Higher monthly charges increase churn risk unless offset by long tenure or multi-year commitment contracts.
     """)
 
-with tabs[3]:
+with tabs[4]:
     st.header("🎯 Live Customer Prediction & Local SHAP Explanation")
     st.markdown("Customize a customer profile, select your preferred machine learning model, and inspect the real-time probability along with individual feature attributions.")
 

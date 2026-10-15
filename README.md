@@ -2,7 +2,7 @@
 
 A practical, beginner-friendly machine learning project that predicts customer churn in the telecommunications industry using the **IBM Telco Customer Churn** dataset.
 
-The project evaluates 4 classification models, demonstrates an empirical **SMOTE** balancing experiment applied strictly to training data, explains predictions using **SHAP** (SHapley Additive exPlanations), and delivers an interactive **Streamlit** dashboard.
+The project evaluates 4 classification models, demonstrates an empirical **SMOTE** balancing experiment applied strictly to training data, provides model evaluation diagnostics (**Confusion Matrix**, **ROC-AUC curves**, and **custom decision thresholds**), explains predictions using **SHAP** (SHapley Additive exPlanations), and delivers an interactive **Streamlit** dashboard.
 
 ---
 
@@ -45,7 +45,7 @@ ChurnPred/
 
 ## 🤖 2. Models Evaluated
 
-Four classifiers were trained using standard, clean configurations:
+Four classifiers were trained using standard, clean configurations under both Baseline and SMOTE settings:
 1. **Logistic Regression** (`max_iter=1000`)
 2. **Random Forest** (`n_estimators=100`, `max_depth=8`)
 3. **XGBoost** (`n_estimators=100`, `max_depth=4`, `learning_rate=0.1`)
@@ -116,7 +116,34 @@ Open your browser at `http://localhost:8501`.
 ---
 
 ## 🎯 6. Streamlit Dashboard Features
-- **Overview Tab**: Dataset dimensions, class balance chart, and project background.
-- **Model Comparison Tab**: Side-by-side metric tables, interactive bar charts, and SMOTE trade-off analysis.
-- **SHAP Explainability Tab**: Global feature importance and summary beeswarm plots with business recommendations.
-- **Live Customer Prediction Tab**: Interactive customer profile form, instant churn probability gauge, risk classification badge, and custom SHAP waterfall chart.
+
+The dashboard consists of five specialized tabs designed for both business executives and ML engineers:
+
+1. **📋 Overview Tab**:
+   - High-level KPIs (Total Customers, Features, Imbalance Churn Rate, Active Model).
+   - Target distribution visualization with exact retention/churn percentages.
+   - Business problem statement and data cleaning notes.
+
+2. **⚖️ Model Comparison & SMOTE Tab**:
+   - Comprehensive benchmark table comparing all 8 model variants across 5 metrics.
+   - Dynamic comparison bar chart selectable by metric (Recall, Precision, F1, Accuracy, ROC-AUC).
+   - In-depth empirical analysis on the practical trade-offs of synthetic oversampling.
+
+3. **📊 Model Evaluation & ROC Tab**:
+   - **Model Selector**: Evaluate any of the 8 trained models (Baseline or SMOTE variants).
+   - **Interactive Decision Threshold Slider** (0.10 to 0.90): Dynamically recomputes predictions and updates metrics in real time.
+   - **Key Metric Cards**: Instant display of Accuracy, Precision, Recall, F1-Score, and ROC-AUC for the active threshold.
+   - **Annotated Confusion Matrix**: Heatmap with sample counts, percentages, and clear business risk interpretations (TN, FP, FN, TP).
+   - **ROC-AUC Curve**: Full curve with shaded area, diagonal random baseline, and a marked operating point showing current FPR and TPR.
+   - **Multi-Model ROC Overlay**: Optional toggle to compare all 8 model curves side-by-side on a single chart with ranked AUC scores.
+   - **Classification Report**: Full Scikit-Learn report with per-class precision, recall, and support.
+
+4. **🔍 SHAP Explainability Tab**:
+   - Global feature importance bar chart (mean absolute SHAP value).
+   - Beeswarm summary plot highlighting directional effects and feature value distributions.
+   - Strategic takeaways translating SHAP attributions into retention policies.
+
+5. **🎯 Live Customer Prediction Tab**:
+   - Quick-fill selector with pre-loaded actual test customers or custom profile input.
+   - Real-time churn probability calculation and risk status indicator badge.
+   - Individualized SHAP waterfall plot showing feature-by-feature risk contributions.
