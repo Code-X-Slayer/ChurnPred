@@ -8,7 +8,7 @@ The project evaluates 4 classification models, demonstrates an empirical **SMOTE
 
 ## 📖 Comprehensive Reviewer Guide
 > **Looking for a deep-dive explanation for an interview or code review?**
-> Check out [REVIEWER_GUIDE.md](file:///c:/Users/Vijay%20Karthik/Downloads/ChurnPred/ChurnPred/REVIEWER_GUIDE.md) for an end-to-end walkthrough of all code, the mathematical mechanics of SMOTE, a concrete customer case study with step-by-step SHAP waterfall calculations, and common reviewer Q&A.
+> Check out [docs/REVIEWER_GUIDE.md](file:///c:/Users/Vijay%20Karthik/Downloads/ChurnPred/ChurnPred/docs/REVIEWER_GUIDE.md) for an end-to-end walkthrough of all code, the mathematical mechanics of SMOTE, a concrete customer case study with step-by-step SHAP waterfall calculations, and common reviewer Q&A.
 
 ---
 
@@ -16,15 +16,22 @@ The project evaluates 4 classification models, demonstrates an empirical **SMOTE
 
 ```text
 ChurnPred/
-├── REVIEWER_GUIDE.md        # Comprehensive technical guide for code reviews / viva
-├── churn_prediction.ipynb   # Complete, executed end-to-end Jupyter Notebook
-├── app.py                   # Clean, interactive Streamlit dashboard
-├── train_and_export.py      # Pipeline script to train models and export artifacts
-├── dataset.csv              # IBM Telco Customer Churn dataset (7,043 rows)
-├── requirements.txt         # Project dependencies
-├── model_artifacts.joblib   # Serialized models, scaler, and preprocessor
-├── metrics.json             # Benchmark metrics for Baseline vs SMOTE
-└── sample_customers.csv     # Test sample records for rapid testing
+├── data/
+│   ├── dataset.csv            # IBM Telco Customer Churn dataset (7,043 rows)
+│   └── sample_customers.csv   # Test sample records for rapid testing
+├── models/
+│   ├── model_artifacts.joblib # Serialized models, scaler, and preprocessor
+│   └── metrics.json           # Benchmark metrics for Baseline vs SMOTE
+├── notebooks/
+│   └── churn_prediction.ipynb # Complete, executed end-to-end Jupyter Notebook
+├── src/
+│   └── train_and_export.py    # Pipeline script to train models and export artifacts
+├── docs/
+│   └── REVIEWER_GUIDE.md      # Comprehensive technical guide for code reviews / viva
+├── app.py                     # Clean, interactive Streamlit dashboard
+├── requirements.txt           # Project dependencies
+├── README.md                  # Project documentation
+└── .gitignore                 # Git ignore rules
 ```
 
 ---
@@ -100,10 +107,16 @@ Ensure Python 3.10+ is installed, then install the dependencies:
 pip install -r requirements.txt
 ```
 
+### Training Pipeline & Exporting Artifacts (Optional)
+To retrain all 8 models and regenerate artifacts:
+```bash
+python src/train_and_export.py
+```
+
 ### Running the Jupyter Notebook
 Open and explore the step-by-step analysis:
 ```bash
-jupyter notebook churn_prediction.ipynb
+jupyter notebook notebooks/churn_prediction.ipynb
 ```
 
 ### Running the Streamlit App

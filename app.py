@@ -1,3 +1,4 @@
+from pathlib import Path
 import os
 import joblib
 import pandas as pd
@@ -9,7 +10,6 @@ import streamlit as st
 from sklearn.metrics import (
     confusion_matrix,
     roc_curve,
-    auc,
     accuracy_score,
     precision_score,
     recall_score,
@@ -18,6 +18,7 @@ from sklearn.metrics import (
     classification_report
 )
 
+# Set Streamlit page layout and metadata
 st.set_page_config(
     page_title="Customer Churn Prediction",
     page_icon="📉",
@@ -25,6 +26,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Custom CSS for dashboard KPI cards and status badges
 st.markdown("""
 <style>
     .metric-card {
@@ -63,11 +65,23 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# Resolve project directories relative to this file
+BASE_DIR = Path(__file__).resolve().parent
+DATA_DIR = BASE_DIR / "data"
+MODELS_DIR = BASE_DIR / "models"
+
+
+# Cache pre-trained models and preprocessing pipelines
 @st.cache_resource
 def load_artifacts():
-    artifacts = joblib.load("model_artifacts.joblib")
-    return artifacts
+    # Fallback supports both structured models/ folder and legacy root
+    artifact_path = MODELS_DIR / "model_artifacts.joblib"
+    if not artifact_path.exists():
+        artifact_path = BASE_DIR / "model_artifacts.joblib"
+    return joblib.load(artifact_path)
 
+
+# Unpack runtime model artifacts and metadata
 artifacts = load_artifacts()
 all_models = artifacts["all_models"]
 best_model_name = artifacts.get("best_model_name", "XGBoost (With SMOTE)")
@@ -79,21 +93,29 @@ X_test_scaled = artifacts["X_test_scaled"]
 y_test = artifacts["y_test"]
 X_train_scaled = artifacts["X_train_scaled"]
 
+
+# Cache global SHAP explainers for overview analysis
 @st.cache_resource
 def get_global_shap_explainer(_model, X_sample):
     explainer = shap.TreeExplainer(_model)
     shap_vals = explainer(X_sample)
     return explainer, shap_vals
 
+
+# Generate baseline SHAP values on 300 test samples for global insights
 default_xgb_model = all_models["XGBoost_smote"]
 global_explainer, test_shap_values = get_global_shap_explainer(default_xgb_model, X_test_scaled[:300])
 
+
+# Compute local SHAP explanation for an individual customer profile
 def get_customer_shap_explanation(model, model_key, X_sample):
     if "Logistic" in model_key:
+        # LinearExplainer for logistic regression
         explainer = shap.LinearExplainer(model, X_train_scaled.iloc[:100])
         sv = explainer(X_sample)
         return sv[0]
     elif "Random Forest" in model_key:
+        # TreeExplainer for Random Forest extracting positive class (index 1)
         explainer = shap.TreeExplainer(model)
         sv = explainer(X_sample)
         exp = shap.Explanation(
@@ -104,10 +126,13 @@ def get_customer_shap_explanation(model, model_key, X_sample):
         )
         return exp
     else:
+        # TreeExplainer for gradient boosting models (XGBoost & LightGBM)
         explainer = shap.TreeExplainer(model)
         sv = explainer(X_sample)
         return sv[0]
 
+
+# Mapping of human-readable labels to serialized model keys
 MODEL_OPTIONS = {
     "XGBoost (With SMOTE) ⭐ Recommended": "XGBoost_smote",
     "XGBoost (Baseline - No SMOTE)": "XGBoost_base",
@@ -119,6 +144,7 @@ MODEL_OPTIONS = {
     "Logistic Regression (Baseline - No SMOTE)": "Logistic Regression_base"
 }
 
+# Sidebar controls for active model selection
 st.sidebar.title("⚙️ Model Controls")
 selected_model_label = st.sidebar.selectbox(
     "Active Prediction Model:",
@@ -129,12 +155,14 @@ selected_model_label = st.sidebar.selectbox(
 selected_model_key = MODEL_OPTIONS[selected_model_label]
 active_model = all_models[selected_model_key]
 
+# Extract selected model metadata and test performance
 model_family = selected_model_key.split("_")[0]
 is_smote = "With SMOTE" if "smote" in selected_model_key else "Baseline (No SMOTE)"
 active_metrics = results_df[
     (results_df["Model"] == model_family) & (results_df["Setting"] == is_smote)
 ].iloc[0]
 
+# Display active model KPI summary in sidebar
 st.sidebar.markdown("---")
 st.sidebar.markdown(f"### 📈 Performance: {model_family}")
 st.sidebar.caption(f"Setting: **{is_smote}** (Evaluated on 1,409 Test Customers)")
@@ -146,9 +174,11 @@ st.sidebar.write(f"• **Accuracy**: `{active_metrics['Accuracy']:.1%}`")
 st.sidebar.markdown("---")
 st.sidebar.info("💡 **Tip**: Switch between Baseline and SMOTE models in the sidebar to compare how churn risk probabilities and SHAP explanations respond.")
 
+# Dashboard header
 st.title("📉 Customer Churn Prediction Dashboard")
 st.caption("Machine Learning Mini-Project using the IBM Telco Customer Churn Dataset")
 
+# Primary application navigation tabs
 tabs = st.tabs([
     "📋 Overview",
     "⚖️ Model Comparison & SMOTE",
@@ -157,9 +187,11 @@ tabs = st.tabs([
     "🎯 Live Customer Prediction"
 ])
 
+# ----------------- TAB 1: OVERVIEW -----------------
 with tabs[0]:
     st.header("Project & Dataset Overview")
-    
+
+    # High-level summary metrics
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("Total Customers", "7,043")
@@ -170,6 +202,7 @@ with tabs[0]:
     with col4:
         st.metric("Active Model", f"{model_family} ({'SMOTE' if 'smote' in selected_model_key else 'Base'})")
 
+    # Problem description
     st.markdown("""
     ### Business Problem
     Customer churn occurs when customers discontinue their subscription with a service provider. 
@@ -180,8 +213,9 @@ with tabs[0]:
 
     st.subheader("Churn Distribution (Class Imbalance)")
     col_chart1, col_chart2 = st.columns([1, 1])
-    
+
     with col_chart1:
+        # Plot target class distribution
         fig, ax = plt.subplots(figsize=(6, 3.5))
         counts = [5174, 1869]
         labels = ["Retained (No)", "Churned (Yes)"]
@@ -191,12 +225,13 @@ with tabs[0]:
         ax.set_title("Customer Churn Distribution")
         for bar in bars:
             yval = bar.get_height()
-            ax.text(bar.get_x() + bar.get_width()/2.0, yval + 50, f"{yval:,} ({yval/sum(counts):.1%})", ha='center', va='bottom', fontsize=9)
+            ax.text(bar.get_x() + bar.get_width() / 2.0, yval + 50, f"{yval:,} ({yval/sum(counts):.1%})", ha='center', va='bottom', fontsize=9)
         ax.set_ylim(0, 6000)
         st.pyplot(fig)
         plt.close(fig)
 
     with col_chart2:
+        # Key dataset observations
         st.markdown("""
         #### Key Data Observations:
         - **Imbalanced Target**: ~26.5% of customers churned while ~73.5% remained loyal.
@@ -204,6 +239,7 @@ with tabs[0]:
         - **Feature Types**: Demographics (gender, partner, dependents), account information (tenure, contract, payment method), and subscribed services (internet, security, tech support).
         """)
 
+# ----------------- TAB 2: MODEL COMPARISON & SMOTE -----------------
 with tabs[1]:
     st.header("Model Performance & SMOTE Experiment")
     st.markdown("""
@@ -213,12 +249,13 @@ with tabs[1]:
     Both settings were evaluated on the **identical, untouched test set** (1,409 customers).
     """)
 
+    # Render benchmark results table
     st.subheader("Performance Comparison Table")
     styled_df = results_df.copy()
     st.dataframe(styled_df, use_container_width=True)
 
+    # Dynamic metric comparison chart
     st.subheader("Visualizing SMOTE vs Baseline Across Metrics")
-    
     metric_choice = st.selectbox(
         "Select Metric to Compare:",
         ["Recall", "Precision", "F1-Score", "Accuracy", "ROC-AUC"],
@@ -245,6 +282,7 @@ with tabs[1]:
     st.pyplot(fig)
     plt.close(fig)
 
+    # Empirical trade-off discussion
     st.markdown("""
     ### Honest Findings: Did SMOTE Help?
     
@@ -263,6 +301,7 @@ with tabs[1]:
     > **Business Takeaway**: SMOTE does **not** unconditionally boost all metrics. It is an intentional engineering lever to prioritize **Recall** when the cost of losing an at-risk customer exceeds the cost of offering a retention incentive.
     """)
 
+# ----------------- TAB 3: MODEL EVALUATION & ROC -----------------
 with tabs[2]:
     st.header("📊 Model Evaluation: Confusion Matrix & ROC-AUC")
     st.markdown("""
@@ -270,7 +309,7 @@ with tabs[2]:
     examine its **Confusion Matrix**, analyze key metrics, and inspect the **ROC-AUC curve**.
     """)
 
-    # Model selector and threshold controls
+    # Model selector and threshold slider
     c_eval1, c_eval2 = st.columns([3, 2])
     with c_eval1:
         eval_default_idx = list(MODEL_OPTIONS.keys()).index(selected_model_label) if selected_model_label in MODEL_OPTIONS else 0
@@ -296,18 +335,18 @@ with tabs[2]:
     eval_family = eval_model_key.split("_")[0]
     eval_is_smote = "With SMOTE" if "smote" in eval_model_key else "Baseline (No SMOTE)"
 
-    # Compute predictions and probabilities
+    # Compute predicted probabilities and thresholded classes
     y_test_probs = eval_model.predict_proba(X_test_scaled)[:, 1]
     y_test_preds = (y_test_probs >= threshold).astype(int)
 
-    # Compute key evaluation metrics
+    # Calculate dynamic test metrics
     eval_acc = accuracy_score(y_test, y_test_preds)
     eval_prec = precision_score(y_test, y_test_preds, zero_division=0)
     eval_rec = recall_score(y_test, y_test_preds, zero_division=0)
     eval_f1 = f1_score(y_test, y_test_preds, zero_division=0)
     eval_auc = roc_auc_score(y_test, y_test_probs)
 
-    # Display Metrics Cards
+    # Render metric cards
     st.subheader(f"Calculated Metrics: {eval_family} ({eval_is_smote})")
     if threshold != 0.5:
         st.info(f"⚡ Metrics dynamically recomputed at decision threshold = **{threshold:.2f}** (Default baseline is 0.50).")
@@ -321,13 +360,14 @@ with tabs[2]:
 
     st.markdown("---")
 
-    # Side-by-side Visualizations: Confusion Matrix and ROC Curve
+    # Side-by-side Confusion Matrix and ROC Curve
     col_cm, col_roc = st.columns(2)
 
     with col_cm:
         st.subheader("Confusion Matrix")
         st.caption(f"Evaluated on 1,409 Test Customers (Threshold = {threshold:.2f})")
 
+        # Compute confusion matrix counts
         cm = confusion_matrix(y_test, y_test_preds)
         tn, fp, fn, tp = cm.ravel()
         total_eval = len(y_test)
@@ -340,6 +380,7 @@ with tabs[2]:
         ]
         labels = np.asarray(labels).reshape(2, 2)
 
+        # Plot annotated heatmap
         fig_cm, ax_cm = plt.subplots(figsize=(6, 4.8), dpi=100)
         sns.heatmap(
             cm,
@@ -360,7 +401,7 @@ with tabs[2]:
         st.pyplot(fig_cm)
         plt.close(fig_cm)
 
-        # Business Interpretation breakdown
+        # Practical confusion matrix breakdown
         st.markdown(f"""
         **Confusion Matrix Breakdown**:
         - **True Negatives (TN = {tn:,})**: Loyal customers correctly identified as staying.
@@ -373,14 +414,16 @@ with tabs[2]:
         st.subheader("ROC-AUC Curve")
         st.caption("True Positive Rate vs. False Positive Rate across all decision thresholds")
 
+        # Compute ROC curve coordinates
         fpr, tpr, _ = roc_curve(y_test, y_test_probs)
 
+        # Plot ROC curve with shaded area
         fig_roc, ax_roc = plt.subplots(figsize=(6, 4.8), dpi=100)
         ax_roc.plot(fpr, tpr, color="#2980b9", lw=2.5, label=f"{eval_family} ({eval_is_smote})\nAUC = {eval_auc:.4f}")
         ax_roc.plot([0, 1], [0, 1], color="#7f8c8d", lw=1.5, linestyle="--", label="Random Chance (AUC = 0.5000)")
         ax_roc.fill_between(fpr, tpr, alpha=0.15, color="#3498db")
 
-        # Operating Point at selected threshold
+        # Mark current operating point on ROC curve
         current_fpr = fp / (fp + tn) if (fp + tn) > 0 else 0
         current_tpr = tp / (tp + fn) if (tp + fn) > 0 else 0
         ax_roc.scatter([current_fpr], [current_tpr], color="#e74c3c", s=110, zorder=5, label=f"Operating Point (Thresh = {threshold:.2f})")
@@ -404,13 +447,14 @@ with tabs[2]:
         st.pyplot(fig_roc)
         plt.close(fig_roc)
 
+        # ROC summary note
         st.markdown(f"""
         **ROC-AUC Insights**:
-        - **AUC = `{eval_auc:.4f}`**: An AUC of ~0.83–0.84 indicates **strong ranking ability**, accurately prioritizing churners above non-churners.
-        - **Operating Point**: At threshold `{threshold:.2f}`, True Positive Rate (Recall) is **`{current_tpr:.1%}`** with a False Positive Rate of **`{current_fpr:.1%}`**.
+        - **AUC = `{eval_auc:.4f}`**: Strong discriminative ranking ability independent of threshold.
+        - **Operating Point**: At threshold `{threshold:.2f}`, Recall is **`{current_tpr:.1%}`** with False Positive Rate of **`{current_fpr:.1%}`**.
         """)
 
-    # Multi-Model ROC Comparison
+    # Multi-model ROC comparison overlay
     st.markdown("---")
     st.subheader("📈 Multi-Model ROC Comparison")
     show_all_roc = st.checkbox("Overlay all 8 models on a single ROC plot for side-by-side comparison", value=False)
@@ -439,7 +483,7 @@ with tabs[2]:
         st.pyplot(fig_multi)
         plt.close(fig_multi)
 
-    # Detailed Classification Report
+    # Detailed Scikit-Learn classification report table
     st.markdown("---")
     st.subheader("📋 Detailed Classification Report")
     report_dict = classification_report(
@@ -459,6 +503,7 @@ with tabs[2]:
         use_container_width=True
     )
 
+# ----------------- TAB 4: SHAP EXPLAINABILITY -----------------
 with tabs[3]:
     st.header("SHAP Explainability (Model Interpretability)")
     st.markdown(f"""
@@ -466,8 +511,9 @@ with tabs[3]:
     """)
 
     col_shap1, col_shap2 = st.columns(2)
-    
+
     with col_shap1:
+        # Plot mean absolute SHAP values for global feature ranking
         st.subheader("Global Feature Importance")
         st.caption("Top 10 features with greatest average impact on model decisions")
         fig, ax = plt.subplots(figsize=(6, 4))
@@ -476,6 +522,7 @@ with tabs[3]:
         plt.close(fig)
 
     with col_shap2:
+        # Plot beeswarm chart showing value magnitude and directional impact
         st.subheader("SHAP Summary (Beeswarm) Plot")
         st.caption("Red = high feature value, Blue = low feature value. Right = increases churn.")
         fig, ax = plt.subplots(figsize=(6, 4))
@@ -483,6 +530,7 @@ with tabs[3]:
         st.pyplot(fig)
         plt.close(fig)
 
+    # Business takeaway points from SHAP analysis
     st.markdown("""
     ### Strategic Insights from SHAP:
     1. **Contract Type**: `Contract_Two year` and `Contract_One year` strongly push predictions toward **retention** (negative SHAP values). Month-to-month contracts are the single largest risk factor.
@@ -491,10 +539,12 @@ with tabs[3]:
     4. **Monthly & Total Charges**: Higher monthly charges increase churn risk unless offset by long tenure or multi-year commitment contracts.
     """)
 
+# ----------------- TAB 5: LIVE CUSTOMER PREDICTION -----------------
 with tabs[4]:
     st.header("🎯 Live Customer Prediction & Local SHAP Explanation")
     st.markdown("Customize a customer profile, select your preferred machine learning model, and inspect the real-time probability along with individual feature attributions.")
 
+    # Active model banner
     st.markdown("### 1. Active Model Selection")
     c_m1, c_m2, c_m3, c_m4, c_m5 = st.columns(5)
     c_m1.metric("Selected Model", model_family)
@@ -503,9 +553,11 @@ with tabs[4]:
     c_m4.metric("Precision (Test)", f"{active_metrics['Precision']:.1%}")
     c_m5.metric("ROC-AUC (Test)", f"{active_metrics['ROC-AUC']:.3f}")
 
+    # Load sample customers for quick one-click form population
     st.markdown("### 2. Customer Profile Configuration")
-    if os.path.exists("sample_customers.csv"):
-        sample_df = pd.read_csv("sample_customers.csv")
+    sample_file = DATA_DIR / "sample_customers.csv" if (DATA_DIR / "sample_customers.csv").exists() else BASE_DIR / "sample_customers.csv"
+    if sample_file.exists():
+        sample_df = pd.read_csv(sample_file)
         sample_choice = st.selectbox(
             "⚡ Quick-Fill with a Sample Test Customer (or choose Custom Input):",
             ["Custom Input"] + [f"Customer #{idx} (Actual: {row['Churn']}, Contract: {row['Contract']}, Tenure: {row['tenure']} mo, Monthly: ${row['MonthlyCharges']})" for idx, row in sample_df.iterrows()]
@@ -518,28 +570,38 @@ with tabs[4]:
         selected_idx = int(sample_choice.split("#")[1].split(" ")[0])
         preset_data = sample_df.loc[selected_idx].to_dict()
 
+    # Form inputs for customer demographics, contract, and services
     with st.form("prediction_form"):
         c1, c2, c3 = st.columns(3)
-        
+
         with c1:
             st.markdown("**Demographics**")
-            gender = st.selectbox("Gender", ["Female", "Male"], index=0 if not preset_data else (0 if preset_data["gender"]=="Female" else 1))
+            gender = st.selectbox("Gender", ["Female", "Male"], index=0 if not preset_data else (0 if preset_data["gender"] == "Female" else 1))
             senior = st.selectbox("Senior Citizen", [0, 1], index=0 if not preset_data else int(preset_data["SeniorCitizen"]))
-            partner = st.selectbox("Partner", ["Yes", "No"], index=0 if not preset_data else (0 if preset_data["Partner"]=="Yes" else 1))
-            dependents = st.selectbox("Dependents", ["Yes", "No"], index=1 if not preset_data else (0 if preset_data["Dependents"]=="Yes" else 1))
+            partner = st.selectbox("Partner", ["Yes", "No"], index=0 if not preset_data else (0 if preset_data["Partner"] == "Yes" else 1))
+            dependents = st.selectbox("Dependents", ["Yes", "No"], index=1 if not preset_data else (0 if preset_data["Dependents"] == "Yes" else 1))
 
         with c2:
             st.markdown("**Account & Billing**")
             tenure = st.slider("Tenure (Months)", min_value=0, max_value=72, value=12 if not preset_data else int(preset_data["tenure"]))
             contract = st.selectbox("Contract", ["Month-to-month", "One year", "Two year"], index=0 if not preset_data else ["Month-to-month", "One year", "Two year"].index(preset_data["Contract"]))
-            paperless = st.selectbox("Paperless Billing", ["Yes", "No"], index=0 if not preset_data else (0 if preset_data["PaperlessBilling"]=="Yes" else 1))
+            paperless = st.selectbox("Paperless Billing", ["Yes", "No"], index=0 if not preset_data else (0 if preset_data["PaperlessBilling"] == "Yes" else 1))
             payment = st.selectbox("Payment Method", cat_options["PaymentMethod"], index=0 if not preset_data else cat_options["PaymentMethod"].index(preset_data["PaymentMethod"]))
             monthly = st.number_input("Monthly Charges ($)", min_value=18.0, max_value=150.0, value=70.0 if not preset_data else float(preset_data["MonthlyCharges"]))
-            total = st.number_input("Total Charges ($)", min_value=0.0, max_value=10000.0, value=float(tenure * monthly) if not preset_data else float(preset_data["TotalCharges"]))
+
+            # Handle total charges with fallback for missing tenure=0 values
+            if preset_data:
+                try:
+                    default_total = float(str(preset_data["TotalCharges"]).strip())
+                except (ValueError, TypeError):
+                    default_total = float(tenure * monthly)
+            else:
+                default_total = float(tenure * monthly)
+            total = st.number_input("Total Charges ($)", min_value=0.0, max_value=10000.0, value=default_total)
 
         with c3:
             st.markdown("**Subscribed Services**")
-            phone = st.selectbox("Phone Service", ["Yes", "No"], index=0 if not preset_data else (0 if preset_data["PhoneService"]=="Yes" else 1))
+            phone = st.selectbox("Phone Service", ["Yes", "No"], index=0 if not preset_data else (0 if preset_data["PhoneService"] == "Yes" else 1))
             multiple = st.selectbox("Multiple Lines", ["No", "Yes", "No phone service"], index=0 if not preset_data else ["No", "Yes", "No phone service"].index(preset_data["MultipleLines"]))
             internet = st.selectbox("Internet Service", ["DSL", "Fiber optic", "No"], index=1 if not preset_data else ["DSL", "Fiber optic", "No"].index(preset_data["InternetService"]))
             security = st.selectbox("Online Security", ["No", "Yes", "No internet service"], index=0 if not preset_data else ["No", "Yes", "No internet service"].index(preset_data["OnlineSecurity"]))
@@ -552,6 +614,7 @@ with tabs[4]:
         submitted = st.form_submit_button("🔮 Predict Customer Churn", use_container_width=True)
 
     if submitted:
+        # Collect customer form inputs
         input_data = {
             "gender": gender,
             "SeniorCitizen": senior,
@@ -574,21 +637,25 @@ with tabs[4]:
             "TotalCharges": total
         }
 
+        # Encode categorical variables and align columns with training schema
         input_df = pd.DataFrame([input_data])
         input_encoded = pd.get_dummies(input_df)
         input_encoded = input_encoded.reindex(columns=feature_names, fill_value=0)
-        
+
+        # Standardize numerical continuous columns using cached scaler
         num_cols = ["tenure", "MonthlyCharges", "TotalCharges"]
         input_encoded[num_cols] = scaler.transform(input_encoded[num_cols])
 
+        # Generate predicted churn probability
         churn_prob = float(active_model.predict_proba(input_encoded)[0, 1])
         prediction = int(churn_prob >= 0.5)
 
         st.markdown("---")
         st.subheader("3. Prediction Results & Model Explanation")
         res_col1, res_col2 = st.columns([1, 2])
-        
+
         with res_col1:
+            # Display risk score and business recommendation
             st.markdown(f"**Evaluated by**: `{selected_model_label}`")
             st.metric("Churn Probability", f"{churn_prob:.1%}")
             st.progress(churn_prob)
@@ -600,9 +667,10 @@ with tabs[4]:
                 st.success("Recommendation: Customer is stable. Standard relationship maintenance and periodic check-ins.")
 
         with res_col2:
+            # Display local waterfall SHAP plot showing positive and negative feature pushes
             st.markdown(f"#### Local SHAP Explanation ({model_family})")
             st.caption("Shows how each attribute pushed churn risk higher (red) or lower (blue).")
-            
+
             try:
                 single_shap_exp = get_customer_shap_explanation(active_model, selected_model_key, input_encoded)
                 fig, ax = plt.subplots(figsize=(8, 4.5))
